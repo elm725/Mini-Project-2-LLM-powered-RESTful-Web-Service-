@@ -1,0 +1,138 @@
+package ma.translator;
+
+import jakarta.annotation.PostConstruct;
+import jakarta.enterprise.context.ApplicationScoped;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.io.entity.StringEntity;
+
+import jakarta.json.Json;
+import jakarta.json.JsonArray;
+import jakarta.json.JsonObject;
+import java.io.StringReader;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * GeminiService — ApplicationScoped CDI bean.
+ *
+ * Calls the Google Gemini 1.5 Flash API to translate text
+ * from any source language into Moroccan Arabic Dialect (Darija).
+ *
+ * The API key is read from the environment variable GEMINI_API_KEY.
+ * Never hard-code API keys in source code.
+ */
+@ApplicationScoped
+public class GeminiService {
+
+    private static final Logger LOG = Logger.getLogger(GeminiService.class.getName());
+
+    private static final String GEMINI_URL =
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=";
+
+    private String apiKey;
+
+    @PostConstruct
+    public void init() {
+        apiKey = System.getenv("GEMINI_API_KEY");
+        if (apiKey == null || apiKey.isBlank()) {
+            LOG.warning("GEMINI_API_KEY environment variable not set. Translation calls will fail.");
+        }
+    }
+
+    /**
+     * Translate the given text from sourceLang to Moroccan Darija.
+     *
+     * @param text       the text to translate
+     * @param sourceLang the source language (e.g. "English", "French", "Spanish")
+     * @return           the Darija translation, or an error message
+     */
+    public String translate(String text, String sourceLang) {
+        if (apiKey == null || apiKey.isBlank()) {
+            return "[Error: GEMINI_API_KEY not configured on server]";
+        }
+
+        String prompt = buildPrompt(text, sourceLang);
+        String requestBody = buildRequestBody(prompt);
+
+        try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
+            HttpPost httpPost = new HttpPost(GEMINI_URL + apiKey);
+            httpPost.setHeader("Content-Type", "application/json");
+            httpPost.setEntity(new StringEntity(requestBody, ContentType.APPLICATION_JSON));
+
+            return httpClient.execute(httpPost, response -> {
+                int statusCode = response.getCode();
+                String responseBody = EntityUtils.toString(response.getEntity());
+
+                if (statusCode != 200) {
+                    LOG.warning("Gemini API returned HTTP " + statusCode + ": " + responseBody);
+                    return "[Translation error: HTTP " + statusCode + "]";
+                }
+
+                return extractTranslationFromResponse(responseBody);
+            });
+
+        } catch (Exception e) {
+            LOG.log(Level.SEVERE, "Error calling Gemini API", e);
+            return "[Translation error: " + e.getMessage() + "]";
+        }
+    }
+
+    /**
+     * Build the system + user prompt for Darija translation.
+     */
+    private String buildPrompt(String text, String sourceLang) {
+        return """
+                You are an expert translator specializing in Moroccan Arabic Dialect (Darija).
+                Translate the following %s text into Moroccan Darija.
+                Return ONLY the Darija translation — no explanations, no romanization, no extra text.
+                Use Arabic script. If the input contains numbers or proper nouns, keep them as-is.
+                
+                Text to translate:
+                %s
+                """.formatted(sourceLang, text);
+    }
+
+    /**
+     * Build the Gemini API JSON request body.
+     */
+    private String buildRequestBody(String prompt) {
+        return """
+                {
+                  "contents": [
+                    {
+                      "parts": [
+                        { "text": %s }
+                      ]
+                    }
+                  ],
+                  "generationConfig": {
+                    "temperature": 0.2,
+                    "maxOutputTokens": 1024
+                  }
+                }
+                """.formatted(Json.createValue(prompt).toString());
+    }
+
+    /**
+     * Parse the Gemini response JSON and extract the translated text.
+     */
+    private String extractTranslationFromResponse(String responseBody) {
+        try {
+            JsonObject root = Json.createReader(new StringReader(responseBody)).readObject();
+            JsonArray candidates = root.getJsonArray("candidates");
+            if (candidates == null || candidates.isEmpty()) {
+                return "[No translation returned by API]";
+            }
+            JsonObject content = candidates.getJsonObject(0).getJsonObject("content");
+            JsonArray parts = content.getJsonArray("parts");
+            return parts.getJsonObject(0).getString("text", "").strip();
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "Failed to parse Gemini response: " + responseBody, e);
+            return "[Failed to parse translation response]";
+        }
+    }
+}
