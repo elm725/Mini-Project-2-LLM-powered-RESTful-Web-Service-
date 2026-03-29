@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en" dir="auto">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Darija Translator</title>
+  <style>
+    :root {
+      --bg:        #ffffff;
+      --surface:   #f5f5f0;
+      --border:    #e0ddd5;
+      --text:      #1a1a18;
+      --muted:     #6b6966;
+      --accent:    #185FA5;
+      --accent-bg: #E6F1FB;
+      --danger:    #A32D2D;
+      font-family: system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:        #1e1e1c;
+        --surface:   #2a2a28;
+        --border:    #3a3a38;
+        --text:      #e2e0d8;
+        --muted:     #9c9a92;
+        --accent:    #85B7EB;
+        --accent-bg: #0C447C;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); padding: 14px; font-size: 14px; line-height: 1.6; }
+
+    header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+    header h1 { font-size: 16px; font-weight: 500; }
+    .flag { font-size: 18px; }
+
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; margin-top: 12px; }
+
+    textarea {
+      width: 100%; min-height: 90px; resize: vertical;
+      background: var(--surface); color: var(--text);
+      border: 0.5px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; font-size: 14px; font-family: inherit;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+
+    .controls { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+    button {
+      padding: 7px 14px; border-radius: 7px; border: 0.5px solid var(--border);
+      background: transparent; color: var(--text); font-size: 13px; cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover  { background: var(--surface); }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.primary:hover { opacity: .88; }
+    button:disabled { opacity: .4; cursor: default; }
+
+    .result-box {
+      background: var(--accent-bg); border: 0.5px solid var(--border);
+      border-radius: 8px; padding: 12px; margin-top: 14px;
+      min-height: 60px; direction: rtl; text-align: right;
+      font-size: 15px; line-height: 1.8;
+    }
+    .result-box.empty { color: var(--muted); font-size: 13px; direction: ltr; text-align: left; }
+
+    .status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 18px; }
+    .status.error { color: var(--danger); }
+
+    .settings { margin-top: 16px; border-top: 0.5px solid var(--border); padding-top: 12px; }
+    .settings summary { font-size: 12px; color: var(--muted); cursor: pointer; list-style: none; }
+    .settings summary::before { content: '▸ '; }
+    details[open] summary::before { content: '▾ '; }
+
+    input[type="text"], input[type="password"] {
+      width: 100%; padding: 7px 10px; border-radius: 6px;
+      border: 0.5px solid var(--border); background: var(--surface);
+      color: var(--text); font-size: 13px; margin-top: 4px;
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+
+    select {
+      padding: 6px 10px; border-radius: 6px;
+      border: 0.5px solid var(--border); background: var(--surface);
+      color: var(--text); font-size: 13px; margin-top: 4px; width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="flag">🇲🇦</span>
+    <h1>Darija Translator</h1>
+  </header>
+
+  <label for="source-lang">Source language</label>
+  <select id="source-lang">
+    <option value="English">English</option>
+    <option value="French">French</option>
+    <option value="Spanish">Spanish</option>
+    <option value="German">German</option>
+    <option value="Arabic (Modern Standard)">Arabic (Modern Standard)</option>
+  </select>
+
+  <label for="input-text">Text to translate</label>
+  <textarea id="input-text" placeholder="Type or paste text here…"></textarea>
+
+  <div class="controls">
+    <button class="primary" id="btn-translate">Translate</button>
+    <button id="btn-clear">Clear</button>
+    <button id="btn-speak-src" title="Read source aloud">&#9654; Source</button>
+    <button id="btn-speak-tgt" title="Read translation aloud">&#9654; Darija</button>
+  </div>
+
+  <label>Darija translation</label>
+  <div class="result-box empty" id="result">Translation will appear here</div>
+
+  <p class="status" id="status"></p>
+
+  <details class="settings">
+    <summary>Settings</summary>
+    <label>Server URL</label>
+    <input type="text" id="server-url" placeholder="http://localhost:8080/darija-translator/api/translate"/>
+    <label>Username</label>
+    <input type="text" id="username" placeholder="apiuser"/>
+    <label>Password</label>
+    <input type="password" id="password" placeholder="••••••••"/>
+    <div class="controls" style="margin-top:10px">
+      <button id="btn-save-settings">Save settings</button>
+    </div>
+  </details>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
