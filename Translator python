@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""
+Darija Translator — Python Client
+Calls the Jakarta EE REST endpoint with Basic Authentication.
+
+Usage:
+    python translator.py
+    python translator.py --text "Hello, how are you?" --lang English
+    python translator.py --interactive
+
+Requirements:
+    pip install requests
+"""
+
+import argparse
+import sys
+import requests
+from requests.auth import HTTPBasicAuth
+
+# ── Configuration ──────────────────────────────────────────────────────────
+
+API_URL  = "http://localhost:8080/darija-translator/api/translate"
+USERNAME = "apiuser"
+PASSWORD = "secret"
+
+SUPPORTED_LANGS = [
+    "English", "French", "Spanish", "German", "Arabic (Modern Standard)"
+]
+
+# ── Core translation function ───────────────────────────────────────────────
+
+def translate(text: str, source_lang: str = "English") -> dict:
+    """
+    Send a translation request to the REST endpoint.
+    Returns a dict with 'translation' key on success, 'error' on failure.
+    """
+    try:
+        response = requests.post(
+            API_URL,
+            json={"text": text, "sourceLang": source_lang},
+            auth=HTTPBasicAuth(USERNAME, PASSWORD),
+            timeout=30,
+            verify=False  # set to True in production with proper certs
+        )
+
+        if response.status_code == 401:
+            return {"error": "Authentication failed. Check your credentials."}
+        if response.status_code == 400:
+            return {"error": f"Bad request: {response.json().get('error', 'unknown')}"}
+        if response.status_code != 200:
+            return {"error": f"HTTP {response.status_code}: {response.text}"}
+
+        return response.json()
+
+    except requests.exceptions.ConnectionError:
+        return {"error": f"Cannot connect to {API_URL}. Is the server running?"}
+    except requests.exceptions.Timeout:
+        return {"error": "Request timed out after 30 seconds."}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── CLI helpers ─────────────────────────────────────────────────────────────
+
+def print_result(result: dict) -> None:
+    if "error" in result:
+        print(f"\n[Error] {result['error']}", file=sys.stderr)
+    else:
+        print(f"\n  Original ({result.get('sourceLang', '?')}): {result.get('original', '')}")
+        print(f"  Darija translation:  {result.get('translation', '')}\n")
+
+
+def interactive_mode() -> None:
+    """REPL-style interactive translator."""
+    print("Darija Translator — Interactive Mode")
+    print("Type 'quit' to exit, 'lang <language>' to change source language.\n")
+
+    lang = "English"
+    while True:
+        try:
+            user_input = input(f"[{lang}] > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nBye!")
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in ("quit", "exit", "q"):
+            print("Bye!")
+            break
+        if user_input.lower().startswith("lang "):
+            new_lang = user_input[5:].strip()
+            if new_lang in SUPPORTED_LANGS:
+                lang = new_lang
+                print(f"  Language set to: {lang}")
+            else:
+                print(f"  Supported: {', '.join(SUPPORTED_LANGS)}")
+            continue
+
+        result = translate(user_input, lang)
+        print_result(result)
+
+
+# ── Entry point ─────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(description="Translate text to Moroccan Darija")
+    parser.add_argument("--text",        "-t", help="Text to translate")
+    parser.add_argument("--lang",        "-l", default="English",
+                        choices=SUPPORTED_LANGS, help="Source language")
+    parser.add_argument("--interactive", "-i", action="store_true",
+                        help="Start interactive REPL mode")
+    args = parser.parse_args()
+
+    if args.interactive:
+        interactive_mode()
+    elif args.text:
+        result = translate(args.text, args.lang)
+        print_result(result)
+        sys.exit(0 if "translation" in result else 1)
+    else:
+        # Default: interactive mode
+        interactive_mode()
+
+
+if __name__ == "__main__":
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    main()
