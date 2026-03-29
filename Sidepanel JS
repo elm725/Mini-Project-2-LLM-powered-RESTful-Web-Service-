@@ -1,0 +1,156 @@
+/**
+ * sidepanel.js — Darija Translator side panel logic
+ *
+ * Features:
+ *  - Auto-populates with selected text passed from the context menu
+ *  - Calls the Jakarta REST endpoint with Basic Auth
+ *  - Text-to-speech for both source and translated text
+ *  - Persists server URL and credentials in chrome.storage.sync
+ */
+
+const DEFAULT_URL = 'http://localhost:8080/darija-translator/api/translate';
+
+// DOM refs
+const inputText   = document.getElementById('input-text');
+const resultBox   = document.getElementById('result');
+const statusEl    = document.getElementById('status');
+const sourceLang  = document.getElementById('source-lang');
+const btnTranslate = document.getElementById('btn-translate');
+const btnClear     = document.getElementById('btn-clear');
+const btnSpeakSrc  = document.getElementById('btn-speak-src');
+const btnSpeakTgt  = document.getElementById('btn-speak-tgt');
+const serverUrlEl  = document.getElementById('server-url');
+const usernameEl   = document.getElementById('username');
+const passwordEl   = document.getElementById('password');
+const btnSaveSettings = document.getElementById('btn-save-settings');
+
+let lastTranslation = '';
+
+// ── Initialise ─────────────────────────────────────────────────────────────
+
+async function init() {
+  // Load saved settings
+  const settings = await chrome.storage.sync.get(['serverUrl', 'username', 'password']);
+  serverUrlEl.value = settings.serverUrl || DEFAULT_URL;
+  usernameEl.value  = settings.username  || '';
+  passwordEl.value  = settings.password  || '';
+
+  // Check for text sent from the context menu
+  chrome.runtime.sendMessage({ type: 'GET_SELECTED_TEXT' }, (response) => {
+    if (response?.text) {
+      inputText.value = response.text;
+      setStatus('Text copied from selection — click Translate.');
+    }
+  });
+}
+
+// ── Translation ────────────────────────────────────────────────────────────
+
+async function doTranslate() {
+  const text = inputText.value.trim();
+  if (!text) { setStatus('Please enter text to translate.', true); return; }
+
+  const serverUrl = serverUrlEl.value.trim() || DEFAULT_URL;
+  const username  = usernameEl.value.trim();
+  const password  = passwordEl.value;
+
+  if (!username || !password) {
+    setStatus('Enter credentials in Settings.', true);
+    return;
+  }
+
+  btnTranslate.disabled = true;
+  setStatus('Translating…');
+  resultBox.textContent = '';
+  resultBox.classList.add('empty');
+
+  try {
+    const credentials = btoa(`${username}:${password}`);
+    const response = await fetch(serverUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Basic ' + credentials
+      },
+      body: JSON.stringify({ text, sourceLang: sourceLang.value })
+    });
+
+    if (response.status === 401) {
+      setStatus('Authentication failed. Check your credentials.', true);
+      return;
+    }
+    if (!response.ok) {
+      setStatus(`Server error: HTTP ${response.status}`, true);
+      return;
+    }
+
+    const data = await response.json();
+    lastTranslation = data.translation || '';
+    resultBox.textContent = lastTranslation;
+    resultBox.classList.remove('empty');
+    setStatus('Translation complete.');
+
+  } catch (err) {
+    setStatus('Network error: ' + err.message, true);
+  } finally {
+    btnTranslate.disabled = false;
+  }
+}
+
+// ── Text-to-Speech ─────────────────────────────────────────────────────────
+
+function speak(text, lang) {
+  if (!text) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = lang;
+  window.speechSynthesis.speak(utterance);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function setStatus(msg, isError = false) {
+  statusEl.textContent = msg;
+  statusEl.className   = 'status' + (isError ? ' error' : '');
+}
+
+// ── Event listeners ────────────────────────────────────────────────────────
+
+btnTranslate.addEventListener('click', doTranslate);
+
+btnClear.addEventListener('click', () => {
+  inputText.value = '';
+  resultBox.textContent = 'Translation will appear here';
+  resultBox.classList.add('empty');
+  lastTranslation = '';
+  setStatus('');
+});
+
+btnSpeakSrc.addEventListener('click', () => {
+  const langMap = {
+    'English': 'en-US', 'French': 'fr-FR', 'Spanish': 'es-ES',
+    'German': 'de-DE', 'Arabic (Modern Standard)': 'ar-SA'
+  };
+  speak(inputText.value.trim(), langMap[sourceLang.value] || 'en-US');
+});
+
+btnSpeakTgt.addEventListener('click', () => {
+  speak(lastTranslation, 'ar-MA');
+});
+
+btnSaveSettings.addEventListener('click', async () => {
+  await chrome.storage.sync.set({
+    serverUrl: serverUrlEl.value.trim(),
+    username:  usernameEl.value.trim(),
+    password:  passwordEl.value
+  });
+  setStatus('Settings saved.');
+});
+
+// Ctrl+Enter triggers translation
+inputText.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) doTranslate();
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+init();
