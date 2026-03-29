@@ -1,0 +1,97 @@
+package ma.translator;
+
+import jakarta.annotation.security.RolesAllowed;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import java.util.Map;
+import java.util.logging.Logger;
+
+/**
+ * TranslatorResource — RESTful endpoint for English → Darija translation.
+ *
+ * Secured with Basic Authentication via Jakarta Security.
+ * Only users in the "translator" role may call this endpoint.
+ *
+ * Endpoints:
+ *   POST /api/translate          — translate JSON body {"text":"...", "sourceLang":"English"}
+ *   GET  /api/translate?text=... — quick translate via query param
+ */
+@Path("/translate")
+@RolesAllowed("translator")
+public class TranslatorResource {
+
+    private static final Logger LOG = Logger.getLogger(TranslatorResource.class.getName());
+
+    @Inject
+    private GeminiService geminiService;
+
+    /**
+     * Primary endpoint: accepts JSON body.
+     *
+     * @param request  JSON object with "text" and optional "sourceLang"
+     * @return         JSON object with "original", "translation", "sourceLang"
+     */
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response translate(TranslationRequest request) {
+        if (request == null || request.getText() == null || request.getText().isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", "The 'text' field is required and must not be empty."))
+                    .build();
+        }
+
+        LOG.info("Translating [" + request.getSourceLang() + "]: " + request.getText());
+
+        String translation = geminiService.translate(request.getText(), request.getSourceLang());
+
+        return Response.ok(Map.of(
+                "original",    request.getText(),
+                "sourceLang",  request.getSourceLang(),
+                "targetLang",  "Moroccan Arabic (Darija)",
+                "translation", translation
+        )).build();
+    }
+
+    /**
+     * Convenience GET endpoint for quick testing.
+     *
+     * @param text        text to translate (query param)
+     * @param sourceLang  source language (optional, default "English")
+     */
+    @GET
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response translateGet(
+            @QueryParam("text") String text,
+            @QueryParam("sourceLang") @DefaultValue("English") String sourceLang) {
+
+        if (text == null || text.isBlank()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", "Query param 'text' is required."))
+                    .build();
+        }
+
+        String translation = geminiService.translate(text, sourceLang);
+
+        return Response.ok(Map.of(
+                "original",    text,
+                "sourceLang",  sourceLang,
+                "targetLang",  "Moroccan Arabic (Darija)",
+                "translation", translation
+        )).build();
+    }
+
+    /**
+     * Health-check (no auth required — separate path).
+     * Override @RolesAllowed for this method only.
+     */
+    @GET
+    @Path("/health")
+    @PermitAll
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response health() {
+        return Response.ok(Map.of("status", "UP", "service", "Darija Translator")).build();
+    }
+}
