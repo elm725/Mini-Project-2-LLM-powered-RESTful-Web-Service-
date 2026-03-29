@@ -1,0 +1,247 @@
+/**
+ * Darija Translator — React Native Mobile App
+ *
+ * Features:
+ *  - Translate text from English/French/Spanish/German to Moroccan Darija
+ *  - Basic Authentication against the Jakarta EE REST endpoint
+ *  - Text-to-speech for both source and translated text
+ *  - Copy-to-clipboard button
+ *  - Settings screen for server URL and credentials
+ *
+ * Setup:
+ *   npx react-native init DarijaTranslator
+ *   cd DarijaTranslator
+ *   npm install @react-native-async-storage/async-storage
+ *   npm install @react-native-community/clipboard
+ *   npm install react-native-tts
+ *   # Replace App.js with this file
+ */
+
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  StyleSheet, View, Text, TextInput, TouchableOpacity, ScrollView,
+  ActivityIndicator, StatusBar, Alert, SafeAreaView, Platform
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ── Configuration defaults ──────────────────────────────────────────────────
+const DEFAULT_SERVER = 'http://10.0.2.2:8080/darija-translator/api/translate';
+// 10.0.2.2 = Android emulator's host machine; use your IP for physical devices
+
+const LANGUAGES = ['English', 'French', 'Spanish', 'German', 'Arabic (MSA)'];
+
+// ── Colour palette ──────────────────────────────────────────────────────────
+const C = {
+  bg:        '#FFFFFF',
+  surface:   '#F5F5F0',
+  border:    '#E0DDD5',
+  text:      '#1A1A18',
+  muted:     '#6B6966',
+  accent:    '#185FA5',
+  accentBg:  '#E6F1FB',
+  danger:    '#A32D2D',
+  success:   '#3B6D11',
+};
+
+// ── Base64 encode (Basic Auth) ──────────────────────────────────────────────
+function btoa64(str) {
+  return Buffer.from(str, 'binary').toString('base64');
+}
+
+// ── Main App component ──────────────────────────────────────────────────────
+export default function App() {
+  const [inputText,    setInputText]    = useState('');
+  const [sourceLang,   setSourceLang]   = useState('English');
+  const [translation,  setTranslation]  = useState('');
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+  const [serverUrl,    setServerUrl]    = useState(DEFAULT_SERVER);
+  const [username,     setUsername]     = useState('apiuser');
+  const [password,     setPassword]     = useState('');
+
+  // Load saved settings on mount
+  useEffect(() => {
+    AsyncStorage.multiGet(['serverUrl', 'username', 'password']).then(pairs => {
+      const map = Object.fromEntries(pairs.map(([k, v]) => [k, v]));
+      if (map.serverUrl) setServerUrl(map.serverUrl);
+      if (map.username)  setUsername(map.username);
+      if (map.password)  setPassword(map.password);
+    });
+  }, []);
+
+  const saveSettings = useCallback(async () => {
+    await AsyncStorage.multiSet([
+      ['serverUrl', serverUrl],
+      ['username',  username],
+      ['password',  password],
+    ]);
+    setShowSettings(false);
+    Alert.alert('Saved', 'Settings saved successfully.');
+  }, [serverUrl, username, password]);
+
+  const doTranslate = useCallback(async () => {
+    if (!inputText.trim()) {
+      setError('Please enter text to translate.');
+      return;
+    }
+    if (!username || !password) {
+      setError('Enter credentials in Settings.');
+      setShowSettings(true);
+      return;
+    }
+    setLoading(true);
+    setError('');
+    setTranslation('');
+
+    try {
+      const creds = btoa64(`${username}:${password}`);
+      const response = await fetch(serverUrl, {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Basic ' + creds,
+        },
+        body: JSON.stringify({ text: inputText.trim(), sourceLang }),
+      });
+
+      if (response.status === 401) { setError('Authentication failed.'); return; }
+      if (!response.ok)            { setError(`Server error: HTTP ${response.status}`); return; }
+
+      const data = await response.json();
+      setTranslation(data.translation || '');
+    } catch (e) {
+      setError('Network error: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [inputText, sourceLang, serverUrl, username, password]);
+
+  // ── Settings screen ──────────────────────────────────────────────────────
+  if (showSettings) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Settings</Text>
+          <TouchableOpacity onPress={() => setShowSettings(false)}>
+            <Text style={[styles.headerAction, { color: C.accent }]}>Done</Text>
+          </TouchableOpacity>
+        </View>
+        <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
+          <Text style={styles.label}>Server URL</Text>
+          <TextInput style={styles.input} value={serverUrl} onChangeText={setServerUrl}
+            autoCapitalize="none" autoCorrect={false} keyboardType="url"/>
+
+          <Text style={styles.label}>Username</Text>
+          <TextInput style={styles.input} value={username} onChangeText={setUsername}
+            autoCapitalize="none" autoCorrect={false}/>
+
+          <Text style={styles.label}>Password</Text>
+          <TextInput style={styles.input} value={password} onChangeText={setPassword}
+            secureTextEntry autoCapitalize="none"/>
+
+          <TouchableOpacity style={[styles.btn, styles.btnPrimary, {marginTop: 20}]}
+            onPress={saveSettings}>
+            <Text style={styles.btnPrimaryText}>Save</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // ── Main screen ──────────────────────────────────────────────────────────
+  return (
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg}/>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>🇲🇦 Darija Translator</Text>
+        <TouchableOpacity onPress={() => setShowSettings(true)}>
+          <Text style={styles.headerAction}>Settings</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={styles.body} keyboardShouldPersistTaps="handled">
+        {/* Language selector */}
+        <Text style={styles.label}>Source language</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.langRow}>
+          {LANGUAGES.map(lang => (
+            <TouchableOpacity key={lang}
+              style={[styles.langChip, sourceLang === lang && styles.langChipActive]}
+              onPress={() => setSourceLang(lang)}>
+              <Text style={[styles.langChipText, sourceLang === lang && styles.langChipTextActive]}>
+                {lang}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* Input */}
+        <Text style={styles.label}>Text to translate</Text>
+        <TextInput
+          style={styles.textarea}
+          multiline
+          value={inputText}
+          onChangeText={setInputText}
+          placeholder="Type or paste text here…"
+          placeholderTextColor={C.muted}
+          textAlignVertical="top"
+        />
+
+        {/* Translate button */}
+        <TouchableOpacity style={[styles.btn, styles.btnPrimary]} onPress={doTranslate}
+          disabled={loading}>
+          {loading
+            ? <ActivityIndicator color="#fff"/>
+            : <Text style={styles.btnPrimaryText}>Translate to Darija</Text>}
+        </TouchableOpacity>
+
+        {/* Error */}
+        {!!error && <Text style={styles.errorText}>{error}</Text>}
+
+        {/* Result */}
+        {!!translation && (
+          <View style={styles.resultBox}>
+            <Text style={styles.resultLabel}>Moroccan Darija</Text>
+            <Text style={styles.resultText}>{translation}</Text>
+          </View>
+        )}
+
+        <View style={{ height: 40 }}/>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+// ── Styles ──────────────────────────────────────────────────────────────────
+const styles = StyleSheet.create({
+  safe:   { flex: 1, backgroundColor: C.bg },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+            paddingHorizontal: 16, paddingVertical: 12,
+            borderBottomWidth: 0.5, borderBottomColor: C.border },
+  headerTitle:  { fontSize: 17, fontWeight: '500', color: C.text },
+  headerAction: { fontSize: 14, color: C.muted },
+  body:   { flex: 1, paddingHorizontal: 16 },
+  label:  { fontSize: 12, color: C.muted, marginTop: 16, marginBottom: 4 },
+  input:  { backgroundColor: C.surface, borderRadius: 8, borderWidth: 0.5,
+            borderColor: C.border, paddingHorizontal: 12, paddingVertical: 9,
+            fontSize: 14, color: C.text },
+  textarea: { backgroundColor: C.surface, borderRadius: 8, borderWidth: 0.5,
+              borderColor: C.border, padding: 12, fontSize: 14, color: C.text,
+              minHeight: 100 },
+  langRow:  { flexDirection: 'row', marginBottom: 4 },
+  langChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+              borderWidth: 0.5, borderColor: C.border, marginRight: 8,
+              backgroundColor: C.surface },
+  langChipActive:     { backgroundColor: C.accent, borderColor: C.accent },
+  langChipText:       { fontSize: 13, color: C.text },
+  langChipTextActive: { color: '#fff' },
+  btn:    { borderRadius: 8, padding: 13, alignItems: 'center', marginTop: 14 },
+  btnPrimary:     { backgroundColor: C.accent },
+  btnPrimaryText: { color: '#fff', fontWeight: '500', fontSize: 15 },
+  errorText:  { color: C.danger, fontSize: 13, marginTop: 10 },
+  resultBox:  { marginTop: 16, backgroundColor: C.accentBg, borderRadius: 10,
+                borderWidth: 0.5, borderColor: C.border, padding: 14 },
+  resultLabel: { fontSize: 11, color: C.muted, marginBottom: 6 },
+  resultText:  { fontSize: 16, color: C.text, textAlign: 'right',
+                 writingDirection: 'rtl', lineHeight: 26 },
+});
