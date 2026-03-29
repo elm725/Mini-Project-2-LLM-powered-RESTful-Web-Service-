@@ -1,0 +1,49 @@
+/**
+ * background.js — Service Worker for Darija Translator Extension
+ *
+ * Responsibilities:
+ *  - Create the right-click context menu item
+ *  - Open the side panel when the user clicks the extension icon
+ *  - Relay the selected text to the side panel
+ */
+
+// Open side panel when user clicks the extension toolbar icon
+chrome.action.onClicked.addListener((tab) => {
+  chrome.sidePanel.open({ tabId: tab.id });
+});
+
+// Create context menu item on installation
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id:       'translate-darija',
+    title:    'Translate to Darija',
+    contexts: ['selection']
+  });
+});
+
+// Handle right-click → "Translate to Darija"
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== 'translate-darija') return;
+
+  const selectedText = info.selectionText?.trim();
+  if (!selectedText) return;
+
+  // Store the text so the side panel can pick it up
+  await chrome.storage.local.set({ pendingText: selectedText, timestamp: Date.now() });
+
+  // Open the side panel
+  await chrome.sidePanel.open({ tabId: tab.id });
+});
+
+// Also allow the side panel to request translation of selected text
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'GET_SELECTED_TEXT') {
+    chrome.storage.local.get(['pendingText', 'timestamp'], (data) => {
+      // Only return if the text was set within the last 30 seconds
+      const fresh = data.timestamp && (Date.now() - data.timestamp) < 30_000;
+      sendResponse({ text: fresh ? data.pendingText : null });
+      if (fresh) chrome.storage.local.remove(['pendingText', 'timestamp']);
+    });
+    return true; // async response
+  }
+});
