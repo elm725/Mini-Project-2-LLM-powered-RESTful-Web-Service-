@@ -1,0 +1,114 @@
+<?php
+/**
+ * Darija Translator — PHP Client
+ *
+ * A simple web form that calls the Jakarta REST endpoint.
+ * Run with:   php -S localhost:9090
+ * Then open:  http://localhost:9090
+ */
+
+define('API_URL',  'http://localhost:8080/darija-translator/api/translate');
+define('API_USER', 'apiuser');
+define('API_PASS', 'secret');
+
+$translation = '';
+$error       = '';
+$inputText   = '';
+$sourceLang  = 'English';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $inputText  = trim($_POST['text']      ?? '');
+    $sourceLang = trim($_POST['sourceLang'] ?? 'English');
+
+    if ($inputText === '') {
+        $error = 'Please enter some text to translate.';
+    } else {
+        $translation = callTranslatorApi($inputText, $sourceLang);
+    }
+}
+
+/**
+ * Call the REST endpoint using cURL with Basic Authentication.
+ */
+function callTranslatorApi(string $text, string $sourceLang): string {
+    $payload = json_encode(['text' => $text, 'sourceLang' => $sourceLang]);
+
+    $ch = curl_init(API_URL);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
+        CURLOPT_USERPWD        => API_USER . ':' . API_PASS,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_SSL_VERIFYPEER => false,  // set to true in production
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError) {
+        return 'cURL error: ' . htmlspecialchars($curlError);
+    }
+    if ($httpCode === 401) {
+        return 'Authentication failed (HTTP 401).';
+    }
+    if ($httpCode !== 200) {
+        return "Server error (HTTP $httpCode).";
+    }
+
+    $data = json_decode($response, true);
+    return $data['translation'] ?? 'No translation returned.';
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Darija Translator — PHP Client</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 48px auto; padding: 0 20px; color: #1a1a18; }
+    h1   { font-size: 22px; font-weight: 500; margin-bottom: 8px; }
+    p.sub { color: #6b6966; font-size: 14px; margin-bottom: 24px; }
+    label { font-size: 13px; color: #6b6966; display: block; margin-bottom: 4px; margin-top: 16px; }
+    select, textarea { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 14px; font-family: inherit; }
+    textarea { min-height: 100px; resize: vertical; }
+    button { margin-top: 14px; padding: 9px 20px; background: #185FA5; color: #fff; border: none; border-radius: 7px; font-size: 14px; cursor: pointer; }
+    button:hover { opacity: .88; }
+    .result { margin-top: 20px; background: #E6F1FB; border: 1px solid #B5D4F4; border-radius: 8px; padding: 16px; direction: rtl; text-align: right; font-size: 16px; line-height: 1.8; min-height: 60px; }
+    .error  { margin-top: 16px; background: #FCEBEB; border: 1px solid #F7C1C1; border-radius: 8px; padding: 14px; color: #A32D2D; font-size: 14px; }
+    .badge  { display: inline-block; font-size: 11px; background: #EAF3DE; color: #27500A; border-radius: 4px; padding: 2px 8px; margin-bottom: 6px; direction: ltr; }
+  </style>
+</head>
+<body>
+  <h1>🇲🇦 Darija Translator</h1>
+  <p class="sub">PHP client — calls the Jakarta EE REST endpoint with Basic Auth</p>
+
+  <form method="POST">
+    <label for="sourceLang">Source language</label>
+    <select name="sourceLang" id="sourceLang">
+      <?php foreach (['English','French','Spanish','German','Arabic (Modern Standard)'] as $lang): ?>
+        <option value="<?= $lang ?>" <?= $lang === $sourceLang ? 'selected' : '' ?>><?= $lang ?></option>
+      <?php endforeach; ?>
+    </select>
+
+    <label for="text">Text to translate</label>
+    <textarea name="text" id="text" placeholder="Enter text here…"><?= htmlspecialchars($inputText) ?></textarea>
+
+    <button type="submit">Translate to Darija</button>
+  </form>
+
+  <?php if ($error): ?>
+    <div class="error"><?= htmlspecialchars($error) ?></div>
+  <?php elseif ($translation): ?>
+    <div class="result">
+      <span class="badge">Moroccan Darija</span><br>
+      <?= htmlspecialchars($translation) ?>
+    </div>
+  <?php endif; ?>
+
+</body>
+</html>
